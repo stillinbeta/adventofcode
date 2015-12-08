@@ -23,7 +23,7 @@ isNice' (c1:c2:cs) ws = let vc = vowelCount c1
                             f = isForbidden c1 c2 in
                         isNice' (c2:cs) $ mappend ws $ WS vc dl f
 
-isNice' [c] ws = isNice' [] $ mappend ws $ WS (vowelCount c) False False
+isNice' [c] ws = isNice' [] $ mappend ws $ mempty { vowels = vowelCount c }
 isNice' [] WS { vowels = v, doubleLetter = dl, forbiddenStrings = fs} =
     v >= 3 &&  dl && not fs
 
