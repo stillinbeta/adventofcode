@@ -1,32 +1,32 @@
---module Day6 (parseLine, Point(Pt), Op(..), Instruction(Instr),
---             runLine, lightsOn, newPointSet) where
+module Day6 (parseLine, Point(Pt), Op(..), Instruction(Instr),
+             runInstruction, lightsOn, newGrid, newGrid') where
 
-import Data.Hashable
-import qualified Data.HashSet as Set
 import Data.List.Split
 import Text.Regex.PCRE
 import Debug.Trace
+
+newtype LightGrid = LG [[Bool]]
 
 data Point = Pt Int Int deriving (Ord, Eq, Show)
 data Op = TurnOn | TurnOff | Toggle deriving (Eq, Show)
 data Instruction = Instr Op Point Point deriving (Eq, Show)
 
-instance Hashable Point where
-       hash (Pt a1 a2) = hash a1 `hashWithSalt` a2
-       hashWithSalt s (Pt a1 a2) = s `hashWithSalt` a1 `hashWithSalt` a2
+instance Show LightGrid where
+       show = printGrid
 
-type PointSet = Set.Set Point
+newGrid :: LightGrid
+newGrid = newGrid' 999
 
-newPointSet :: PointSet
-newPointSet = Set.empty
+newGrid' :: Int -> LightGrid
+newGrid' dim = LG [ [False | _ <- [0..dim]] | _ <- [0..dim] ]
 -- Beginning of Parsing
 pattern = "(turn on|turn off|toggle) (\\d+),(\\d+) through (\\d+),(\\d+)"
 
 parseLine :: String -> Instruction
 parseLine line = case line =~ pattern :: (String, String, String, [String]) of
-                (_, _, _, [instr, x1, y1, x2, y2]) ->
-                     Instr (parseOp instr) (makePoint x1 y1) (makePoint x2 y2)
-                otherwise -> error $ "Couldn't parse \"" ++ line ++ "\"\n"
+         (_, _, _, [instr, x1, y1, x2, y2]) ->
+              Instr (parseOp instr) (makePoint x1 y1) (makePoint x2 y2)
+         otherwise -> error $ "Couldn't parse \"" ++ line ++ "\"\n"
 
 parseOp :: String -> Op
 parseOp("turn on")  = TurnOn
@@ -39,32 +39,75 @@ makePoint x y = Pt (read x) (read y)
 -- End of parsing
 -- Beginningl of processing
 
-runLine :: Instruction -> PointSet -> PointSet
-runLine (Instr opt (Pt x1 y1)  (Pt x2 y2)) ps =
-       let fun = case opt of
-              TurnOn  -> Set.insert
-              TurnOff -> Set.delete
-              Toggle  -> toggle
-           worklist = [Pt x y | x <- [x1..x2], y <- [y1..y2]] in
-           foldr fun ps worklist
+runInstruction :: Instruction -> LightGrid -> LightGrid
+runInstruction (Instr op pt1 pt2) grid =
+       let f = case op of
+                     TurnOn -> turnOn
+                     TurnOff -> turnOff
+                     Toggle -> toggle in
+       walkColumn pt1 pt2 0 f grid
 
-toggle :: Point -> PointSet -> PointSet
-toggle var set = if Set.member var set
-                 then Set.delete var set
-                 else Set.insert var set
+turnOn :: Bool -> Bool
+turnOn _ = True
 
-lightsOn :: PointSet -> Int
-lightsOn = Set.size
+turnOff :: Bool -> Bool
+turnOff _ = False
+
+toggle :: Bool -> Bool
+toggle x | trace ("toggling" ++ show x ++ "\n") False = undefined
+toggle True = False
+toggle False = True
+
+walkColumn :: Point -> Point -> Int -> (Bool -> Bool) -> LightGrid -> LightGrid
+walkColumn pt1 pt2 pos f (LG (c:cs)) =
+       let (Pt x1 y1) = pt1
+           (Pt x2 y2) = pt2
+           c' = if pos >= x1 && pos <= x2
+                then walkRow y1 y2 0 f c
+                else c
+           (LG lg) = walkColumn pt1 pt2 (pos + 1) f (LG cs) in
+       LG (c':lg)
+walkColumn _ _ _ _ (LG []) = LG []
+
+walkRow :: Int -> Int -> Int -> (Bool -> Bool) -> [Bool] -> [Bool]
+walkRow start end pos f (x:xs) =
+       let x' = if pos >= start && pos <= end
+                then trace "calling f\n"(f x)
+                else x
+           x'' = trace ("x' = " ++ show x' ++ "@" ++ show start ++"," ++ show end ++":" ++ show pos ++ "\n") x' in
+       x'':(walkRow start end (pos + 1) f xs)
+walkRow _ _ _ _ [] = []
+
+
+printGrid :: LightGrid -> String
+printGrid (LG grid) = foldl (++) "" $ map printRow grid
+
+printRow :: [Bool] -> String
+printRow row = (map printCell row) ++ "\n"
+
+printCell :: Bool -> Char
+printCell True = '*'
+printCell False = '.'
+
+
+lightsOn :: LightGrid -> Int
+lightsOn (LG grid) = foldl lightsOn' 0 grid
+
+lightsOn' :: Int -> [Bool] -> Int
+lightsOn' initial row = foldl lightsOn'' initial row
+
+lightsOn'' :: Int -> Bool -> Int
+lightsOn'' x True = x + 1
+lightsOn'' x False = x
+
 -- End of processing
 -- Beginnning of execution
 
 
 getLights :: String -> Int
 getLights input =  let lines = takeWhile (/="") $ splitOn "\n" input
-                       lines' = lines -- trace ("lines = " ++ show lines) lines
-                       instructions = map parseLine lines'
-                       i' = instructions -- trace ("instructions = " ++ show instructions) instructions
-                       result = foldr runLine newPointSet i' in
+                       instructions = map parseLine lines
+                       result = foldr runInstruction newGrid instructions in
                    lightsOn result
 
 main = interact $ show . getLights
