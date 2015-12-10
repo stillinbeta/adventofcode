@@ -1,24 +1,61 @@
 module Day6 (parseLine, Point(Pt), Op(..), Instruction(Instr),
-             runInstruction, lightsOn, newGrid, newGrid') where
+             runInstruction, runInstructions, lightsOn, newGrid, newGrid') where
 
 import Data.List.Split
 import Text.Regex.PCRE
 import Debug.Trace
+import GHC.Exts (Constraint)
 
-newtype LightGrid = LG [[Bool]]
+class Light a where
+       value :: a -> Int
+       switch :: Op -> a -> a
+       new :: a
+
+newtype LightGrid a =  LG [[a]]
 
 data Point = Pt Int Int deriving (Ord, Eq, Show)
 data Op = TurnOn | TurnOff | Toggle deriving (Eq, Show)
 data Instruction = Instr Op Point Point deriving (Eq, Show)
 
-instance Show LightGrid where
-       show = printGrid
+data BinaryLight = On | Off
+instance Light BinaryLight where
+       value On  = 1
+       value Off = 0
 
-newGrid :: LightGrid
+       switch TurnOn _   = On
+       switch TurnOff _  = Off
+       switch Toggle On  = Off
+       switch Toggle Off  = On
+
+       new = Off
+
+instance Show BinaryLight where
+       show On = "*"
+       show Off = "."
+
+data DimmerLight = Dimmer Int
+instance Light DimmerLight where
+       value (Dimmer x) = x
+
+       switch TurnOn  (Dimmer x)  = Dimmer (x + 1)
+       switch TurnOff (Dimmer 0)  = Dimmer 0
+       switch TurnOff (Dimmer x)  = Dimmer (x - 1)
+       switch Toggle  (Dimmer x)  = Dimmer (x + 2)
+
+       new = Dimmer 0
+
+instance Show DimmerLight where
+       show (Dimmer x) = show x
+
+newGrid :: LightGrid BinaryLight
 newGrid = newGrid' 999
 
-newGrid' :: Int -> LightGrid
-newGrid' dim = LG [ [False | _ <- [0..dim]] | _ <- [0..dim] ]
+newDimmerGrid :: LightGrid DimmerLight
+newDimmerGrid = newGrid' 999
+
+newGrid' :: (Light a) => Int -> LightGrid a
+newGrid' dim = LG [ [new | _ <- [0..dim]] | _ <- [0..dim] ]
+
 -- Beginning of Parsing
 pattern = "(turn on|turn off|toggle) (\\d+),(\\d+) through (\\d+),(\\d+)"
 
@@ -37,79 +74,72 @@ makePoint :: String -> String -> Point
 makePoint x y = Pt (read x) (read y)
 
 -- End of parsing
--- Beginningl of processing
+-- Beginning of processing
 
-runInstruction :: Instruction -> LightGrid -> LightGrid
-runInstruction (Instr op pt1 pt2) grid =
-       let f = case op of
-                     TurnOn -> turnOn
-                     TurnOff -> turnOff
-                     Toggle -> toggle in
-       walkColumn pt1 pt2 0 f grid
+runInstructions :: (Light a) => [Instruction] -> LightGrid a -> LightGrid a
+runInstructions (i:is) lg = runInstructions is $ runInstruction i lg
+runInstructions [] lg = lg
 
-turnOn :: Bool -> Bool
-turnOn _ = True
+runInstruction :: (Light a) => Instruction -> LightGrid a -> LightGrid a
+runInstruction (Instr op pt1 pt2) (LG grid) =
+       LG $ walkColumn pt1 pt2 0 (switch op) grid
 
-turnOff :: Bool -> Bool
-turnOff _ = False
-
-toggle :: Bool -> Bool
-toggle x | trace ("toggling" ++ show x ++ "\n") False = undefined
-toggle True = False
-toggle False = True
-
-walkColumn :: Point -> Point -> Int -> (Bool -> Bool) -> LightGrid -> LightGrid
-walkColumn pt1 pt2 pos f (LG (c:cs)) =
+walkColumn :: Point -> Point -> Int -> (a -> a) -> [[a]] -> [[a]]
+walkColumn pt1 pt2 pos f (c:cs) =
        let (Pt x1 y1) = pt1
            (Pt x2 y2) = pt2
            c' = if pos >= x1 && pos <= x2
                 then walkRow y1 y2 0 f c
-                else c
-           (LG lg) = walkColumn pt1 pt2 (pos + 1) f (LG cs) in
-       LG (c':lg)
-walkColumn _ _ _ _ (LG []) = LG []
+                else c in
+       c':walkColumn pt1 pt2 (pos + 1) f cs
 
-walkRow :: Int -> Int -> Int -> (Bool -> Bool) -> [Bool] -> [Bool]
+walkColumn _ _ _ _ [] = []
+
+walkRow :: Int -> Int -> Int -> (a -> a) -> [a] -> [a]
 walkRow start end pos f (x:xs) =
        let x' = if pos >= start && pos <= end
-                then trace "calling f\n"(f x)
-                else x
-           x'' = trace ("x' = " ++ show x' ++ "@" ++ show start ++"," ++ show end ++":" ++ show pos ++ "\n") x' in
-       x'':(walkRow start end (pos + 1) f xs)
+                then f x
+                else x in
+           --x'' = trace ("x' = " ++ show x' ++ "@" ++ show start ++"," ++ show end ++":" ++ show pos ++ "\n") x' in
+       x':(walkRow start end (pos + 1) f xs)
 walkRow _ _ _ _ [] = []
 
+lightsOn :: (Light a) => LightGrid a -> Int
+lightsOn (LG grid) = sum $ map lightsOn' grid
 
-printGrid :: LightGrid -> String
-printGrid (LG grid) = foldl (++) "" $ map printRow grid
+lightsOn' :: (Light a) => [a] -> Int
+lightsOn' row = sum $ map value row
 
-printRow :: [Bool] -> String
-printRow row = (map printCell row) ++ "\n"
+-- Begin of Printing
+printGrid :: (Show a) => LightGrid a -> String
+printGrid (LG grid) = foldl1 (++) $  map printRow grid
 
-printCell :: Bool -> Char
-printCell True = '*'
-printCell False = '.'
+printRow :: (Show a) => [a] -> String
+printRow row = (foldl1 (++) (map show row)) ++ "\n"
 
+instance (Show a) => Show (LightGrid a) where
+       show = printGrid
 
-lightsOn :: LightGrid -> Int
-lightsOn (LG grid) = foldl lightsOn' 0 grid
-
-lightsOn' :: Int -> [Bool] -> Int
-lightsOn' initial row = foldl lightsOn'' initial row
-
-lightsOn'' :: Int -> Bool -> Int
-lightsOn'' x True = x + 1
-lightsOn'' x False = x
+-- End of Printing
 
 -- End of processing
 -- Beginnning of execution
 
+getInstructions :: String -> [Instruction]
+getInstructions input =
+       let lines = takeWhile (/="") $ splitOn "\n" input in
+       map parseLine lines
 
-getLights :: String -> Int
-getLights input =  let lines = takeWhile (/="") $ splitOn "\n" input
-                       instructions = map parseLine lines
-                       result = foldr runInstruction newGrid instructions in
-                   lightsOn result
+runGrid :: (Light a) => LightGrid a -> [Instruction] -> Int
+runGrid grid instructions = lightsOn $ runInstructions instructions grid
 
-main = interact $ show . getLights
+runBinary :: [Instruction] -> Int
+runBinary  = runGrid newGrid
+
+runDimmer :: [Instruction] -> Int
+runDimmer = runGrid newDimmerGrid
+
+main = interact $ show . runDimmer . getInstructions
+-- main = interact $ show . runBinary . getInstructions
 
 -- End of execution
