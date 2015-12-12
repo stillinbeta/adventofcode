@@ -1,4 +1,10 @@
-module Day7 (parse, Address(..), Operation(..), Instruction(..), Assignment(..), Wire(..)) where
+module Day7 ( parse, solve
+             , Address(..)
+             , Operation(..)
+             , Instruction(..)
+             , Assignment(..)
+             , Wire(..)
+             ) where
 
 import Control.Monad.State.Lazy
 import Data.Bits
@@ -6,6 +12,7 @@ import Data.Char
 import Data.Either
 import Data.List
 import Data.List.Split
+import Data.Maybe
 import qualified Data.Map.Strict as Map
 import Data.Word
 
@@ -14,13 +21,17 @@ data WordState = WS { vowels           :: Int,
                       forbiddenStrings :: Bool }
 
 type Value = Word16
-newtype Wire = Wire String deriving (Eq, Show, Ord)
-data Address = Source Wire | Constant Value deriving (Eq, Show)
+newtype Wire = Wire String deriving (Eq, Ord, Show)
+data Address = Source Wire | Constant Value deriving (Eq)
 data Operation = And | Or | LShift | RShift deriving (Eq, Show)
 data Instruction = Val Address | Not Address | Op Operation Address Address deriving (Eq, Show)
 data Assignment = Assign Instruction Wire deriving (Eq, Show)
 
 type Circuit = Map.Map Wire Instruction
+
+instance Show Address where
+    show (Source (Wire wire)) = wire
+    show (Constant value) = show value
 
 -- Begin parsing
 
@@ -73,13 +84,31 @@ parse' xs = Left $ "can't parse " ++ show xs
 -- End parsing
 -- Begin Solving
 
---solve :: [Assignment] -> Circuit
+solve :: [Assignment] -> Either String Circuit
+solve assignments = let circuit = constructCircuit assignments in
+    solve' 1000 circuit
 
---solve' :: [
+solve' :: Int -> Circuit -> Either String Circuit
+solve' 0 circuit = Left $ "Couldn't solve in 1000 iterations. Circuit state: " ++ show circuit
+solve' c circuit = let (solved, circuit') = runState (fillIn $ Map.keys circuit) circuit in
+    if solved
+    then Right circuit'
+    else solve' (c - 1) circuit'
 
---fillIn :: [Wire] -> State Circuit Boolean
---fillIn (w:ws) = --do
---    set <- getState
+
+fillIn :: [Wire] -> State Circuit Bool
+fillIn (w:ws) = do
+    circuit <- get
+    put $ backfill w circuit
+    fillIn ws
+
+fillIn [] = do
+    circuit <- get
+    return $ Map.foldr ((&&) . isValConst) True circuit
+
+isValConst :: Instruction -> Bool
+isValConst (Val (Constant _)) = True
+isValConst otherwise = False
 
 getConstant :: Address -> Circuit -> Maybe Value
 getConstant (Source wire) circuit = do
@@ -121,9 +150,28 @@ constructCircuit [] = Map.empty
 
 -- End Solving
 -- Begin execution
+
+getResults :: [Assignment] -> Either String Value
+getResults assignments =  do
+    circuit <- solve assignments
+    case Map.lookup (Wire "a") circuit of
+        Just (Val (Constant v)) -> Right v
+        otherwise -> Left "Can't retieve constant for Wire a"
+
+subB :: Value -> Assignment -> Assignment
+subB v (Assign instr (Wire "b")) = Assign (Val (Constant v)) (Wire "b")
+subB _ assign = assign
+
+
 main = do
     file <- getContents
-    let results = map parse $ splitOn "\n" file
-    putStrLn $ intercalate "\n" $ lefts results
-
+    let parsed = map parse $ lines file
+    putStrLn $ intercalate "\n" $ lefts parsed
+    let assignments = rights parsed
+    case getResults assignments of
+        Left err -> putStrLn err
+        Right v -> do
+            putStrLn $ "part a: " ++ (show v)
+            let assignments' = map (subB v) assignments
+            putStrLn $ either id (("part b: "++) . show) $ getResults assignments'
 -- End execution
