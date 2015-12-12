@@ -1,12 +1,26 @@
 module Day1 ( countParens ) where
 
-countParens :: String -> Int
-countParens parens = countParens' parens 0
+import Control.Monad
+import Control.Monad.State.Lazy
 
-countParens' :: String -> Int -> Int
-countParens' ('(':xs) sum = countParens' xs $ sum + 1
-countParens' (')':xs) sum = countParens' xs $ sum - 1
-countParens' (_  :xs) sum = countParens' xs sum
-countParens' [] sum = sum
+countParens :: String -> (Int, Maybe Int)
+countParens parens = runState (countParens' parens 0 1) Nothing
 
-main = interact $ show . countParens
+countParens' :: String -> Int -> Int -> State (Maybe Int) Int
+countParens' (x:xs) sum loc = do
+    let sum' = case x of
+                   '(' -> sum + 1
+                   ')' -> sum - 1
+                   otherwise -> sum
+    when (sum' == -1) $ do
+        basement <- get
+        put (basement `mplus` Just loc)
+    countParens' xs sum' (loc + 1)
+countParens' [] sum _ = do
+    return sum
+
+main = do
+    line <- getContents
+    let (partA, partB) = countParens line
+    putStrLn $ "part a: " ++ show partA
+    putStrLn $ "part b: " ++ maybe "never basement" show partB
