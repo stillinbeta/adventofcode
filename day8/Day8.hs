@@ -1,9 +1,15 @@
-module Day8 (dataLength, stringLex) where
+module Day8 (dataLength, stringLex, CodeDiff(CodeDiff), escape) where
 
 import Data.Char
 
-dataLength :: String -> (Int, Int)
-dataLength s = (length s, 0)
+data CodeDiff = CodeDiff Int Int deriving (Eq, Show)
+
+instance Monoid CodeDiff where
+        mempty = CodeDiff 0 0
+        (CodeDiff s1 b1) `mappend` (CodeDiff s2 b2) = CodeDiff (s1 + s2) (b1 + b2)
+
+dataLength :: String -> CodeDiff
+dataLength s = CodeDiff (length s) (length (stringLex s) - 2)
 
 stringLex :: String -> [String]
 stringLex = lex' ""
@@ -24,9 +30,21 @@ lex' "\\" ('x':xs)     = lex' ("\\" ++ "x") xs
 lex' "" ('\\':xs)      = lex' "\\" xs
 -- Somehow we've got a buffer but it matches nothing (likely nonhex after
 -- \x
-lex' [] (x:xs)          = [x]:(lex' "" xs)
+lex' _ (x:xs)          = [x]:(lex' "" xs)
 lex' [] []              = []
+
+escape :: String -> String
+escape input = "\"" ++ escape' input ++ "\""
+
+escape' ('\"':xs) = ('\\':'"':escape' xs)
+escape' ('\\':xs) = ('\\':'\\':escape' xs)
+escape' (x:xs)    = (x:escape' xs)
+escape' []        = []
 
 main = do
     contents <- getContents
-    putStrLn "welp"
+    let strings = lines contents
+    let (CodeDiff slength bytes) = foldMap dataLength strings
+    putStrLn $ "part a: " ++ show (slength - bytes)
+    let escaped = foldr ((+) . length . escape) 0 strings
+    putStrLn $ "part b: " ++ show (escaped - length)
