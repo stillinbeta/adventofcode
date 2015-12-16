@@ -32,12 +32,10 @@ makeState :: Reindeer -> ReindeerState
 makeState reindeer = (RS reindeer Sprinting 1)
 
 runRunReindeer :: Int -> Reindeer -> Int
-runRunReindeer count reindeer = runRunReindeer' count $ makeState reindeer
+runRunReindeer count reindeer = sum $ runRunReindeer' count reindeer
 
-runRunReindeer' :: Int -> ReindeerState -> Int
-runRunReindeer' 0 _ = 0
-runRunReindeer' c s = let (a, s') = runState reindeerTick s in
-       a + runRunReindeer' (c - 1) s'
+runRunReindeer' :: Int -> Reindeer -> [Int]
+runRunReindeer' count reindeer = evalState (replicateM count reindeerTick) (makeState reindeer)
 
 toggleState :: ReindeerState -> ReindeerState
 toggleState (RS reindeer Sprinting _) = (RS reindeer Resting 1)
@@ -51,12 +49,12 @@ reindeerTick = do
               let reindeer = getReindeer state
               case rStatus state of
                      Sprinting -> do
-                            if (rTimeIn state >= sprint reindeer) 
+                            if (rTimeIn state >= sprint reindeer)
                                    then (modify toggleState)
                                    else (modify incrState)
                             return $ velocity reindeer
                      Resting -> do
-                            if (rTimeIn state >= rest reindeer) 
+                            if (rTimeIn state >= rest reindeer)
                                    then (modify toggleState)
                                    else (modify incrState)
                             return 0
@@ -66,22 +64,25 @@ scoreMax max i = if i >= max then 1
                              else 0
 
 
+runningTally :: [Int] -> [Int]
+runningTally = snd . mapAccumL (\a b -> (a + b, a + b)) 0
+
 runAllReindeer :: Int -> [Reindeer] -> [Int]
-runAllReindeer c reindeer = let states = map makeState reindeer
-                                scores = replicate (length reindeer) 0 in
-                                       runAllReindeer' c states scores
-
--- ughhhhhh
-runAllReindeer' :: Int -> [ReindeerState] -> [Int] -> [Int]
-runAllReindeer' 0 states _ = replicate (length states) 0
-runAllReindeer' c states distances =
-              let (newDistances, states') = unzip $ map (runState reindeerTick) states
-                  distances' = zipWith (+) distances newDistances
-                  maxDistance = maximum distances'
-                  scores = runAllReindeer' (c - 1) states' distances' in
-                  zipWith (+) scores $ map (scoreMax maxDistance) distances'
+runAllReindeer c reindeer =
+                  -- [[7, 7, 0, 0], [6, 6, 6, 0]]
+              let distances = map (runRunReindeer' c) reindeer
+                  -- [[7, 6], [14, 12], [14, 18], [14, 18]]
+                  distances' = transpose $ map runningTally distances in
+                         scoreDistances distances'
 
 
+scoreDistances :: [[Int]] -> [Int]
+scoreDistances (d:ds) =
+              let max = maximum d
+                  scores = map (scoreMax max) d in
+                         case ds of
+                                [] -> scores
+                                otherwise -> zipWith (+) scores $ scoreDistances ds
 main = do
        let seconds = 2503
        contents <-  getContents
