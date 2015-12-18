@@ -1,6 +1,7 @@
 {-# LANGUAGE TemplateHaskell, TypeOperators #-}
 
-module Day16 (parseSue, newSue, Sue(..), Perhaps(..), compareSues) where
+module Day16 (parseSue, newSue, Sue(..), Perhaps(..),
+              compareSues, compareAttr, compareAttrB) where
 
 import Control.Category
 import Data.Either (rights)
@@ -14,7 +15,10 @@ import Text.Read (readMaybe)
 
 -- Begin Data Model --
 
-type SueLabel = Sue :-> (Maybe Int)
+-- We can't match on functions unfortunately
+data SueLabel = SueLabel { labelName  :: String
+                         ,  runLabel  :: Sue :-> (Maybe Int)
+                         }
 
 data Sue  = Sue { _children    :: Maybe Int
                 , _cats        :: Maybe Int
@@ -44,19 +48,20 @@ newSue num = Sue { _children    = Nothing
                  , _number = num
                  }
 
-setterMap :: Map.Map String SueLabel
-setterMap = Map.fromList [ ("children"    , children   )
-                         , ("cats"        , cats       )
-                         , ("samoyeds"    , samoyeds   )
-                         , ("pomeranians" , pomeranians)
-                         , ("akitas"      , akitas     )
-                         , ("vizslas"     , vizslas    )
-                         , ("goldfish"    , goldfish   )
-                         , ("trees"       , trees      )
-                         , ("cars"        , cars       )
-                         , ("perfumes"    , perfumes   )
-                         ]
 
+setterMap :: Map.Map String SueLabel
+setterMap = let list =  [ SueLabel "children"    children
+                        , SueLabel "cats"        cats
+                        , SueLabel "samoyeds"    samoyeds
+                        , SueLabel "pomeranians" pomeranians
+                        , SueLabel "akitas"      akitas
+                        , SueLabel "vizslas"     vizslas
+                        , SueLabel "goldfish"    goldfish
+                        , SueLabel "trees"       trees
+                        , SueLabel "cars"        cars
+                        , SueLabel "perfumes"    perfumes
+                        ] in
+                            Map.fromList $ map (\sl -> (labelName sl, sl)) list
 -- End Data Model --
 -- Begin Parsing --
 
@@ -81,9 +86,9 @@ possibleLabels = choice $ map (try . string) (Map.keys setterMap)
 
 getSetter :: String -> String -> Maybe (Sue -> Sue)
 getSetter attrLabel num = do
-        attrLabel' <- Map.lookup attrLabel setterMap
+        sueLabel <- Map.lookup attrLabel setterMap
         num' <- readMaybe num
-        return $ set attrLabel' (Just num')
+        return $ set (runLabel sueLabel) (Just num')
 
 parseSue :: String -> Either ParseError Sue
 parseSue text = parse sueLine "(unknown)" text
@@ -100,23 +105,46 @@ instance Monoid Perhaps where
         DefinitelyNot `mappend` _ = DefinitelyNot
         Perhaps       `mappend` t = t
 
-toTrinary :: Maybe Bool -> Perhaps
-toTrinary (Just True)  = Perhaps
-toTrinary (Just False) = DefinitelyNot
-toTrinary Nothing      = Perhaps
+toPerhaps :: Maybe Bool -> Perhaps
+toPerhaps (Just True)  = Perhaps
+toPerhaps (Just False) = DefinitelyNot
+toPerhaps Nothing      = Perhaps
 
-compareAttr :: Sue -> Sue -> SueLabel -> Perhaps
-compareAttr s1 s2 sueLabel = toTrinary $ do
-     v1 <- get sueLabel s1
-     v2 <- get sueLabel s2
-     return $ v1 == v2
+type CompareF = Sue -> Sue -> SueLabel -> Perhaps
 
-compareSues :: Sue -> Sue -> Perhaps
-compareSues s1 s2 = mconcat $ map (compareAttr s1 s2) (Map.elems setterMap)
+compareAttr :: CompareF
+compareAttr = compareAttr' (==)
 
-findMatchingSue :: Sue -> [Sue] -> Maybe Sue
-findMatchingSue s1 = find ((==Perhaps) . compareSues s1)
+compareAttr' :: (Int -> Int -> Bool) -> Sue -> Sue -> SueLabel -> Perhaps
+compareAttr' f s1 s2 sueLabel = toPerhaps $ do
+     v1 <- get (runLabel sueLabel) s1
+     v2 <- get (runLabel sueLabel) s2
+     return $ v1 `f` v2
 
+compareAttrB :: CompareF
+compareAttrB s1 s2 sueLabel =
+        let f = case labelName sueLabel of
+                    "cats"        -> (<)
+                    "trees"       -> (<)
+                    "pomeranians" -> (>)
+                    "goldfish"    -> (>)
+                    otherwise   -> (==) in
+                        compareAttr' f s1 s2 sueLabel
+
+compareSues :: (CompareF) -> Sue -> Sue -> Perhaps
+compareSues f s1 s2 = mconcat $ map (f s1 s2) (Map.elems setterMap)
+
+-- End matching --
+-- Begin execution --
+
+findMatchingSueA :: Sue -> [Sue] -> Maybe Sue
+findMatchingSueA = findMatchingSue' compareAttr
+
+findMatchingSueB :: Sue -> [Sue] -> Maybe Sue
+findMatchingSueB = findMatchingSue' compareAttrB
+
+findMatchingSue' :: (CompareF) -> Sue -> [Sue] -> Maybe Sue
+findMatchingSue' f s1 = find ((==Perhaps) . compareSues f s1)
 -- End matching --
 -- Begin execution --
 
@@ -135,6 +163,8 @@ mySue = Sue { _children    = Just 3
 main = do
         contents <- getContents
         let sues = rights $ map parseSue (lines contents)
-        let matchedSue = findMatchingSue mySue sues
-        putStrLn $ maybe "no string found" (show . get number) matchedSue
-
+        let matchedSueA = findMatchingSueA mySue sues
+        putStrLn $ "part a: " ++ maybe "no string found" (show . get number) matchedSueA
+        let matchedSueB = findMatchingSueB mySue sues
+        putStrLn $ "part b: " ++ maybe "no string found" (show . get number) matchedSueB
+-- End execution --
