@@ -8,6 +8,7 @@ import Debug.Trace
 data LightGrid = LightGrid { xSize :: Int
                            , ySize :: Int
                            , getGrid :: !(Seq.Seq (Seq.Seq Light))
+                           , stuckOn :: ![(Int, Int)]
                            } deriving Eq
 data Light = On | Off deriving Eq
 
@@ -55,7 +56,7 @@ parseGrid text = do
              (row:rest) -> length row
              otherwise -> 0
     let seqGrid = matrixToSeq grid
-    return $ LightGrid {xSize = x, ySize = y, getGrid = seqGrid}
+    return $ LightGrid {xSize = x, ySize = y, getGrid = seqGrid, stuckOn = []}
 
 -- Utilities
 
@@ -98,7 +99,8 @@ lightState Off neighboursOn = case neighboursOn of
                                       otherwise -> Off
 
 changeIndex :: LightGrid -> Int -> Int -> Light -> Light
-changeIndex lg x y light =
+changeIndex lg x y light | elem (x, y) (stuckOn lg) = On
+                         | otherwise =
     let neighbours = [lightVal lg (x + x') (y + y') | x' <- [-1..1]
                                                     , y' <- [-1..1]
                                                     , not (x' == 0 && y' == 0)]
@@ -118,11 +120,24 @@ lightsIlluminated :: LightGrid -> Int
 lightsIlluminated LightGrid {getGrid = grid } =
         foldr ((+) . (foldr ((+) . countOn) 0)) 0 grid
 
+stickOn :: LightGrid -> [(Int, Int)] -> LightGrid
+stickOn lg@(LightGrid { getGrid = grid }) sticky =
+        let sticky' = filter (uncurry (indexAllowed lg)) sticky
+            grid' = foldr (\(x, y) grid ->
+                        Seq.adjust (Seq.update y On) x grid) grid sticky' in
+        lg {stuckOn = sticky', getGrid = grid' }
+
+lightsStuckOn = [(0, 0), (99, 0), (0, 99), (99, 99)]
 
 main = do
     contents <- getContents
-    putStrLn $ either (("error: "++) . show) (("part a: "++) . show) $ do
-        lg <- parseGrid contents
-        let grid100 = (iterate nextGrid lg) !! 100
-        return $ lightsIlluminated grid100
+    let parsed = parseGrid contents
+    case parsed of
+        Left err -> putStrLn $ "error: " ++ show err
+        Right lg -> do
+            let grid100 = (iterate nextGrid lg) !! 100
+            putStrLn $ "part a: " ++ (show $ lightsIlluminated grid100)
+            let lg' = stickOn lg lightsStuckOn
+            let grid100' = (iterate nextGrid lg') !! 100
+            putStrLn $ "part b: " ++ (show $ lightsIlluminated grid100')
 
