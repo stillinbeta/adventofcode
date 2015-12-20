@@ -1,8 +1,8 @@
-module Day19 (parseCalibration, substitutionCount) where
+module Day19 (parseCalibration, substitutionCount, searchDepth) where
 
-import Control.Monad.State.Lazy (State(..), evalState, get, modify)
+import Control.Monad.State.Lazy (State(..), execState, get, modify)
 import qualified Data.Set as Set
-import Data.Maybe (maybeToList)
+import Data.Maybe (maybeToList, listToMaybe, mapMaybe)
 import qualified Data.Map.Strict as Map
 import Text.ParserCombinators.Parsec hiding (State)
 
@@ -38,12 +38,10 @@ parseCalibration = parse p_input "(unknown)"
 substitutionCount :: String -> Calibration -> Int
 substitutionCount formula calibration =
         let subst = substitutionCount' "" formula calibration in
-            evalState subst Set.empty
+            Set.size $ execState subst Set.empty
 
-substitutionCount' :: String -> String -> Calibration -> State (Set.Set String) Int
-substitutionCount' _ [] _ = do
-        set <- get
-        return $ Set.size set
+substitutionCount' :: String -> String -> Calibration -> State (Set.Set String) ()
+substitutionCount' _ [] _ = return ()
 
 substitutionCount' prev xs calibration = do
         let (key, next) = case xs of
@@ -57,6 +55,18 @@ substitutionCount' prev xs calibration = do
             Nothing -> pure ()
         substitutionCount' (prev ++ key) next calibration
 
+searchDepth :: String -> Calibration -> Maybe Int
+searchDepth query calibration = searchDepth' 0 query calibration "e"
+
+searchDepth' :: Int -> String -> Calibration -> String -> Maybe Int
+searchDepth' 30 _ _ _ = Nothing
+searchDepth' depth query calibration curr | query == curr = Just depth
+                                          | otherwise =
+          let set = execState (substitutionCount' "" curr calibration) Set.empty
+              words = Set.toList set in
+                  listToMaybe $ mapMaybe (searchDepth' (depth + 1) query calibration) words
+
+
 main = do
     contents <- getContents
     case parseCalibration contents of
@@ -64,3 +74,5 @@ main = do
         Right (formula, calibration) -> do
             let substCount = substitutionCount formula calibration
             putStrLn $ "part a: " ++ show substCount
+            let depth = searchDepth formula calibration
+            putStrLn $ "part b: " ++ (maybe "no result" show depth)
